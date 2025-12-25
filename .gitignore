@@ -1,0 +1,26 @@
+# Claude Code / Harness (開発用)
+.claude/
+.claude-code-harness-version
+claude-code-harness.config.json
+
+# Cursor (開発用)
+.cursor/
+
+# 開発ワークフロー (任意)
+AGENTS.md
+CLAUDE.md
+Plans.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs
+*.log
