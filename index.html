@@ -566,10 +566,17 @@
       },
 
       update() {
-        // 入力に応じて移動
-        if (input.left) this.targetX -= CONFIG.PLAYER_SPEED;
-        if (input.right) this.targetX += CONFIG.PLAYER_SPEED;
-        if (input.mouseX !== null) this.targetX = input.mouseX;
+        // キー操作を優先（キー入力があればマウスは無視）
+        const keyPressed = input.left || input.right;
+
+        if (keyPressed) {
+          // キー操作
+          if (input.left) this.targetX -= CONFIG.PLAYER_SPEED;
+          if (input.right) this.targetX += CONFIG.PLAYER_SPEED;
+        } else if (input.mouseX !== null) {
+          // マウス操作（キー入力がない場合のみ）
+          this.targetX = input.mouseX;
+        }
 
         // 画面内に制限
         this.targetX = Math.max(this.width / 2, Math.min(width - this.width / 2, this.targetX));
