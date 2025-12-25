@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "i18n": {
+    "language": "ja"
+  },
+  "workflow": {
+    "mode": "2-agent",
+    "pm_tool": "cursor",
+    "impl_tool": "claude-code"
+  },
+  "scaffolding": {
+    "tech_choice_mode": "fixed",
+    "base_stack": "vanilla-html",
+    "allow_web_search": true
+  },
+  "project": {
+    "name": "jyoya-no-kane-2025",
+    "type": "game",
+    "description": "除夜の鐘シューティング - 宇宙編"
+  }
+}

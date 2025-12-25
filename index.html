@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>除夜の鐘シューティング - 宇宙編</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+    }
+
+    #gameContainer {
+      position: relative;
+      touch-action: none;
+    }
+
+    #gameCanvas {
+      display: block;
+      background: linear-gradient(to bottom, #0a0a2e 0%, #1a1a4e 50%, #0a0a2e 100%);
+    }
+
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      color: #fff;
+      font-size: 16px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    #startScreen, #gameOverScreen, #clearScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.85);
+      color: #fff;
+      text-align: center;
+    }
+
+    .screen-title {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+      text-shadow: 0 0 20px #ffd700;
+    }
+
+    .screen-subtitle {
+      font-size: 1.2em;
+      margin-bottom: 30px;
+      color: #aaa;
+    }
+
+    .start-button {
+      padding: 15px 50px;
+      font-size: 1.3em;
+      background: linear-gradient(to bottom, #ffd700, #ff8c00);
+      border: none;
+      border-radius: 10px;
+      color: #000;
+      cursor: pointer;
+      font-weight: bold;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .start-button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 30px #ffd700;
+    }
+
+    .instructions {
+      margin-top: 30px;
+      font-size: 0.9em;
+      color: #888;
+      line-height: 1.8;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    #phaseAnnounce {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2em;
+      color: #ffd700;
+      text-shadow: 0 0 30px #ffd700;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .bell-counter {
+      font-size: 1.5em;
+      color: #ffd700;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui">
+      <div>
+        <div class="bell-counter">🔔 <span id="bellCount">0</span> / 108</div>
+        <div id="phaseDisplay">第一の試練</div>
+      </div>
+      <div>
+        <div>❤️ <span id="lives">3</span></div>
+      </div>
+    </div>
+
+    <div id="phaseAnnounce"></div>
+
+    <div id="startScreen">
+      <div class="screen-title">🔔 除夜の鐘シューティング</div>
+      <div class="screen-subtitle">〜 宇宙編 〜</div>
+      <button class="start-button" id="startButton">始める</button>
+      <div class="instructions">
+        移動: ← → / A D / マウス / タッチ<br>
+        攻撃: スペース / クリック / タップ<br><br>
+        108回鐘を打って煩悩を払おう！
+      </div>
+    </div>
+
+    <div id="gameOverScreen" class="hidden">
+      <div class="screen-title">💀 煩悩に負けた...</div>
+      <div class="screen-subtitle">打った鐘: <span id="finalBellCount">0</span>回</div>
+      <button class="start-button" id="retryButton">もう一度</button>
+    </div>
+
+    <div id="clearScreen" class="hidden">
+      <div class="screen-title">🎊 煩悩退散！</div>
+      <div class="screen-subtitle">108の鐘を打ち鳴らした！</div>
+      <button class="start-button" id="clearRetryButton">もう一度遊ぶ</button>
+    </div>
+  </div>
+
+  <script>
+    // ===== ゲーム設定 =====
+    const CONFIG = {
+      PLAYER_SPEED: 8,
+      HAMMER_SPEED: 12,
+      HAMMER_COOLDOWN: 200,
+      MAX_BELLS: 108,
+      INITIAL_LIVES: 3,
+      PHASES: [
+        { name: '第一の試練', start: 0, end: 35, spawnRate: 1500, spread: false },
+        { name: '第二の試練', start: 36, end: 71, spawnRate: 1200, spread: true },
+        { name: '最終試練', start: 72, end: 107, spawnRate: 800, spread: true, barrage: true }
+      ],
+      BONNOU_TYPES: [
+        { name: '傲', color: '#00bfff', speed: 2, size: 30, behavior: 'normal' },
+        { name: '怒', color: '#ff4444', speed: 4, size: 25, behavior: 'fast' },
+        { name: '欲', color: '#9932cc', speed: 1.5, size: 45, behavior: 'large' },
+        { name: '妬', color: '#32cd32', speed: 2.5, size: 28, behavior: 'homing' },
+        { name: '惰', color: '#ffd700', speed: 1.8, size: 32, behavior: 'wave' }
+      ]
+    };
+
+    // ===== ゲーム状態 =====
+    const game = {
+      state: 'start', // start, playing, gameover, clear
+      bellCount: 0,
+      lives: CONFIG.INITIAL_LIVES,
+      phase: 0,
+      lastSpawn: 0,
+      lastHammer: 0,
+      stars: [],
+      hammers: [],
+      bonnous: [],
+      particles: [],
+      bellRings: []
+    };
+
+    // ===== Canvas 設定 =====
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+
+    function resizeCanvas() {
+      const container = document.getElementById('gameContainer');
+      const maxWidth = Math.min(window.innerWidth, 600);
+      const maxHeight = Math.min(window.innerHeight, 800);
+
+      width = maxWidth;
+      height = maxHeight;
+
+      canvas.width = width;
+      canvas.height = height;
+      container.style.width = width + 'px';
+      container.style.height = height + 'px';
+    }
+
+    // ===== プレイヤー =====
+    const player = {
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 60,
+      targetX: 0,
+
+      init() {
+        this.x = width / 2;
+        this.y = height - 100;
+        this.targetX = this.x;
+      },
+
+      update() {
+        // 入力に応じて移動
+        if (input.left) this.targetX -= CONFIG.PLAYER_SPEED;
+        if (input.right) this.targetX += CONFIG.PLAYER_SPEED;
+        if (input.mouseX !== null) this.targetX = input.mouseX;
+
+        // 画面内に制限
+        this.targetX = Math.max(this.width / 2, Math.min(width - this.width / 2, this.targetX));
+
+        // スムーズに移動
+        this.x += (this.targetX - this.x) * 0.15;
+      },
+
+      draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // 袈裟（体）
+        ctx.fillStyle = '#8b4513';
+        ctx.beginPath();
+        ctx.ellipse(0, 10, 20, 25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 頭
+        ctx.fillStyle = '#ffdab9';
+        ctx.beginPath();
+        ctx.arc(0, -20, 18, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 坊主頭の光沢
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.arc(-5, -25, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 目
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(-6, -18, 3, 0, Math.PI * 2);
+        ctx.arc(6, -18, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 口（瞑想的な）
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -10, 5, 0.2, Math.PI - 0.2);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    };
+
+    // ===== 入力管理 =====
+    const input = {
+      left: false,
+      right: false,
+      fire: false,
+      mouseX: null
+    };
+
+    // キーボード
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
+      if (e.key === ' ') {
+        e.preventDefault();
+        input.fire = true;
+      }
+    });
+
+    document.addEventListener('keyup', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = false;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = false;
+      if (e.key === ' ') input.fire = false;
+    });
+
+    // マウス
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      input.mouseX = e.clientX - rect.left;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      input.mouseX = null;
+    });
+
+    canvas.addEventListener('click', () => {
+      if (game.state === 'playing') fireHammer();
+    });
+
+    // タッチ
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      input.mouseX = e.touches[0].clientX - rect.left;
+    });
+
+    canvas.addEventListener('touchend', () => {
+      input.mouseX = null;
+    });
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      input.mouseX = e.touches[0].clientX - rect.left;
+      if (game.state === 'playing') fireHammer();
+    });
+
+    // ===== ハンマー =====
+    function fireHammer() {
+      const now = Date.now();
+      if (now - game.lastHammer < CONFIG.HAMMER_COOLDOWN) return;
+      game.lastHammer = now;
+
+      const currentPhase = CONFIG.PHASES[game.phase];
+
+      // 基本ハンマー
+      game.hammers.push({
+        x: player.x,
+        y: player.y - 30,
+        vx: 0,
+        vy: -CONFIG.HAMMER_SPEED,
+        rotation: 0
+      });
+
+      // 拡散攻撃（フェーズ2以降）
+      if (currentPhase.spread) {
+        game.hammers.push({
+          x: player.x,
+          y: player.y - 30,
+          vx: -3,
+          vy: -CONFIG.HAMMER_SPEED,
+          rotation: 0
+        });
+        game.hammers.push({
+          x: player.x,
+          y: player.y - 30,
+          vx: 3,
+          vy: -CONFIG.HAMMER_SPEED,
+          rotation: 0
+        });
+      }
+
+      // 弾幕モード（フェーズ3）
+      if (currentPhase.barrage) {
+        game.hammers.push({
+          x: player.x,
+          y: player.y - 30,
+          vx: -6,
+          vy: -CONFIG.HAMMER_SPEED * 0.8,
+          rotation: 0
+        });
+        game.hammers.push({
+          x: player.x,
+          y: player.y - 30,
+          vx: 6,
+          vy: -CONFIG.HAMMER_SPEED * 0.8,
+          rotation: 0
+        });
+      }
+    }
+
+    function updateHammers() {
+      for (let i = game.hammers.length - 1; i >= 0; i--) {
+        const h = game.hammers[i];
+        h.x += h.vx;
+        h.y += h.vy;
+        h.rotation += 0.3;
+
+        if (h.y < -30 || h.x < -30 || h.x > width + 30) {
+          game.hammers.splice(i, 1);
+        }
+      }
+    }
+
+    function drawHammers() {
+      game.hammers.forEach(h => {
+        ctx.save();
+        ctx.translate(h.x, h.y);
+        ctx.rotate(h.rotation);
+
+        // 柄
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(-3, -15, 6, 30);
+
+        // 頭
+        ctx.fillStyle = '#444';
+        ctx.fillRect(-12, -20, 24, 12);
+
+        ctx.restore();
+      });
+    }
+
+    // ===== 煩悩 =====
+    function spawnBonnou() {
+      const type = CONFIG.BONNOU_TYPES[Math.floor(Math.random() * CONFIG.BONNOU_TYPES.length)];
+      game.bonnous.push({
+        x: Math.random() * (width - 60) + 30,
+        y: -50,
+        type: type,
+        angle: 0,
+        time: 0
+      });
+    }
+
+    function updateBonnous() {
+      for (let i = game.bonnous.length - 1; i >= 0; i--) {
+        const b = game.bonnous[i];
+        b.time++;
+
+        switch (b.type.behavior) {
+          case 'normal':
+          case 'large':
+            b.y += b.type.speed;
+            break;
+          case 'fast':
+            b.y += b.type.speed;
+            break;
+          case 'homing':
+            const dx = player.x - b.x;
+            b.x += Math.sign(dx) * 1;
+            b.y += b.type.speed;
+            break;
+          case 'wave':
+            b.angle += 0.05;
+            b.x += Math.sin(b.angle) * 3;
+            b.y += b.type.speed;
+            break;
+        }
+
+        // 画面外で削除
+        if (b.y > height + 50) {
+          game.bonnous.splice(i, 1);
+        }
+      }
+    }
+
+    function drawBonnous() {
+      game.bonnous.forEach(b => {
+        ctx.save();
+        ctx.translate(b.x, b.y);
+
+        // 煩悩の体（もやもや）
+        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, b.type.size);
+        gradient.addColorStop(0, b.type.color);
+        gradient.addColorStop(0.7, b.type.color + '88');
+        gradient.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, b.type.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 煩悩の文字
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${b.type.size * 0.6}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.type.name, 0, 0);
+
+        ctx.restore();
+      });
+    }
+
+    // ===== 衝突判定 =====
+    function checkCollisions() {
+      // ハンマー vs 煩悩
+      for (let hi = game.hammers.length - 1; hi >= 0; hi--) {
+        const h = game.hammers[hi];
+        for (let bi = game.bonnous.length - 1; bi >= 0; bi--) {
+          const b = game.bonnous[bi];
+          const dx = h.x - b.x;
+          const dy = h.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < b.type.size + 10) {
+            // 煩悩を倒した
+            game.hammers.splice(hi, 1);
+            game.bonnous.splice(bi, 1);
+            game.bellCount++;
+
+            // 鐘エフェクト
+            game.bellRings.push({
+              x: b.x,
+              y: b.y,
+              radius: 0,
+              alpha: 1
+            });
+
+            // パーティクル
+            for (let p = 0; p < 8; p++) {
+              game.particles.push({
+                x: b.x,
+                y: b.y,
+                vx: (Math.random() - 0.5) * 8,
+                vy: (Math.random() - 0.5) * 8,
+                color: b.type.color,
+                life: 30
+              });
+            }
+
+            // UI更新
+            document.getElementById('bellCount').textContent = game.bellCount;
+
+            // フェーズチェック
+            checkPhase();
+
+            // クリアチェック
+            if (game.bellCount >= CONFIG.MAX_BELLS) {
+              gameState('clear');
+            }
+
+            break;
+          }
+        }
+      }
+
+      // 煩悩 vs プレイヤー
+      for (let bi = game.bonnous.length - 1; bi >= 0; bi--) {
+        const b = game.bonnous[bi];
+        const dx = player.x - b.x;
+        const dy = player.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < b.type.size + 20) {
+          game.bonnous.splice(bi, 1);
+          game.lives--;
+          document.getElementById('lives').textContent = game.lives;
+
+          // ダメージエフェクト
+          for (let p = 0; p < 12; p++) {
+            game.particles.push({
+              x: player.x,
+              y: player.y,
+              vx: (Math.random() - 0.5) * 10,
+              vy: (Math.random() - 0.5) * 10,
+              color: '#ff0000',
+              life: 40
+            });
+          }
+
+          if (game.lives <= 0) {
+            gameState('gameover');
+          }
+        }
+      }
+    }
+
+    // ===== フェーズ管理 =====
+    function checkPhase() {
+      for (let i = CONFIG.PHASES.length - 1; i >= 0; i--) {
+        if (game.bellCount >= CONFIG.PHASES[i].start) {
+          if (game.phase !== i) {
+            game.phase = i;
+            announcePhase(CONFIG.PHASES[i].name);
+            document.getElementById('phaseDisplay').textContent = CONFIG.PHASES[i].name;
+          }
+          break;
+        }
+      }
+    }
+
+    function announcePhase(name) {
+      const el = document.getElementById('phaseAnnounce');
+      el.textContent = name;
+      el.style.opacity = 1;
+      setTimeout(() => {
+        el.style.opacity = 0;
+      }, 2000);
+    }
+
+    // ===== エフェクト =====
+    function updateParticles() {
+      for (let i = game.particles.length - 1; i >= 0; i--) {
+        const p = game.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.95;
+        p.vy *= 0.95;
+        p.life--;
+
+        if (p.life <= 0) {
+          game.particles.splice(i, 1);
+        }
+      }
+    }
+
+    function drawParticles() {
+      game.particles.forEach(p => {
+        ctx.fillStyle = p.color + Math.floor(p.life / 40 * 255).toString(16).padStart(2, '0');
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function updateBellRings() {
+      for (let i = game.bellRings.length - 1; i >= 0; i--) {
+        const r = game.bellRings[i];
+        r.radius += 5;
+        r.alpha -= 0.03;
+
+        if (r.alpha <= 0) {
+          game.bellRings.splice(i, 1);
+        }
+      }
+    }
+
+    function drawBellRings() {
+      game.bellRings.forEach(r => {
+        ctx.strokeStyle = `rgba(255, 215, 0, ${r.alpha})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+    }
+
+    // ===== 背景（星） =====
+    function initStars() {
+      game.stars = [];
+      for (let i = 0; i < 100; i++) {
+        game.stars.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          size: Math.random() * 2 + 0.5,
+          speed: Math.random() * 0.5 + 0.2
+        });
+      }
+    }
+
+    function updateStars() {
+      game.stars.forEach(s => {
+        s.y += s.speed;
+        if (s.y > height) {
+          s.y = 0;
+          s.x = Math.random() * width;
+        }
+      });
+    }
+
+    function drawStars() {
+      ctx.fillStyle = '#fff';
+      game.stars.forEach(s => {
+        ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    // ===== ゲーム状態管理 =====
+    function gameState(state) {
+      game.state = state;
+
+      document.getElementById('startScreen').classList.add('hidden');
+      document.getElementById('gameOverScreen').classList.add('hidden');
+      document.getElementById('clearScreen').classList.add('hidden');
+
+      switch (state) {
+        case 'start':
+          document.getElementById('startScreen').classList.remove('hidden');
+          break;
+        case 'playing':
+          resetGame();
+          break;
+        case 'gameover':
+          document.getElementById('finalBellCount').textContent = game.bellCount;
+          document.getElementById('gameOverScreen').classList.remove('hidden');
+          break;
+        case 'clear':
+          document.getElementById('clearScreen').classList.remove('hidden');
+          break;
+      }
+    }
+
+    function resetGame() {
+      game.bellCount = 0;
+      game.lives = CONFIG.INITIAL_LIVES;
+      game.phase = 0;
+      game.lastSpawn = 0;
+      game.lastHammer = 0;
+      game.hammers = [];
+      game.bonnous = [];
+      game.particles = [];
+      game.bellRings = [];
+
+      player.init();
+      initStars();
+
+      document.getElementById('bellCount').textContent = '0';
+      document.getElementById('lives').textContent = game.lives;
+      document.getElementById('phaseDisplay').textContent = CONFIG.PHASES[0].name;
+    }
+
+    // ===== メインループ =====
+    function gameLoop(timestamp) {
+      // 背景クリア
+      ctx.fillStyle = '#0a0a2e';
+      ctx.fillRect(0, 0, width, height);
+
+      // 星
+      updateStars();
+      drawStars();
+
+      if (game.state === 'playing') {
+        // 煩悩スポーン
+        const currentPhase = CONFIG.PHASES[game.phase];
+        if (timestamp - game.lastSpawn > currentPhase.spawnRate) {
+          spawnBonnou();
+          game.lastSpawn = timestamp;
+        }
+
+        // スペースキーで連射
+        if (input.fire) {
+          fireHammer();
+        }
+
+        // 更新
+        player.update();
+        updateHammers();
+        updateBonnous();
+        checkCollisions();
+        updateParticles();
+        updateBellRings();
+
+        // 描画
+        drawBonnous();
+        drawHammers();
+        player.draw();
+        drawParticles();
+        drawBellRings();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ===== 初期化 =====
+    function init() {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      initStars();
+      player.init();
+
+      // ボタンイベント
+      document.getElementById('startButton').addEventListener('click', () => gameState('playing'));
+      document.getElementById('retryButton').addEventListener('click', () => gameState('playing'));
+      document.getElementById('clearRetryButton').addEventListener('click', () => gameState('playing'));
+
+      gameState('start');
+      requestAnimationFrame(gameLoop);
+    }
+
+    init();
+  </script>
+</body>
+</html>
