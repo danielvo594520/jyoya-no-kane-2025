@@ -163,26 +163,35 @@
     const CONFIG = {
       PLAYER_SPEED: 8,
       HAMMER_SPEED: 12,
-      HAMMER_COOLDOWN: 200,
+      HAMMER_COOLDOWN: 280,
       MAX_BELLS: 108,
       INITIAL_LIVES: 3,
       PHASES: [
-        { name: '第一の試練', start: 0, end: 35, spawnRate: 1500, spread: false },
-        { name: '第二の試練', start: 36, end: 71, spawnRate: 1200, spread: true },
-        { name: '最終試練', start: 72, end: 107, spawnRate: 800, spread: true, barrage: true }
+        { name: '第一の試練', start: 0, end: 35, spawnRate: 700, spawnCount: 1, spread: false },
+        { name: '第二の試練', start: 36, end: 71, spawnRate: 450, spawnCount: 2, spread: true },
+        { name: '最終試練', start: 72, end: 107, spawnRate: 280, spawnCount: 3, spread: true, barrage: true }
       ],
       BONNOU_TYPES: [
-        { name: '傲', color: '#00bfff', speed: 2, size: 30, behavior: 'normal' },
-        { name: '怒', color: '#ff4444', speed: 4, size: 25, behavior: 'fast' },
-        { name: '欲', color: '#9932cc', speed: 1.5, size: 45, behavior: 'large' },
-        { name: '妬', color: '#32cd32', speed: 2.5, size: 28, behavior: 'homing' },
-        { name: '惰', color: '#ffd700', speed: 1.8, size: 32, behavior: 'wave' }
-      ]
+        { name: '傲', color: '#00bfff', speed: 3.5, size: 30, behavior: 'normal' },
+        { name: '怒', color: '#ff4444', speed: 6, size: 25, behavior: 'fast' },
+        { name: '欲', color: '#9932cc', speed: 2.5, size: 50, behavior: 'large' },
+        { name: '妬', color: '#32cd32', speed: 4, size: 28, behavior: 'homing' },
+        { name: '惰', color: '#ffd700', speed: 3, size: 35, behavior: 'wave' }
+      ],
+      BOSS: {
+        HP: 108,
+        WIDTH: 120,
+        HEIGHT: 150,
+        SPEED: 3,
+        BEAM_INTERVAL: 1500,
+        BEAM_DURATION: 800,
+        BEAM_WARNING: 500
+      }
     };
 
     // ===== ゲーム状態 =====
     const game = {
-      state: 'start', // start, playing, gameover, clear
+      state: 'start', // start, playing, boss, gameover, clear
       bellCount: 0,
       lives: CONFIG.INITIAL_LIVES,
       phase: 0,
@@ -192,7 +201,263 @@
       hammers: [],
       bonnous: [],
       particles: [],
-      bellRings: []
+      bellRings: [],
+      beams: []
+    };
+
+    // ===== ボス =====
+    const boss = {
+      x: 0,
+      y: 0,
+      hp: CONFIG.BOSS.HP,
+      maxHp: CONFIG.BOSS.HP,
+      direction: 1,
+      lastBeam: 0,
+      beamState: 'none', // none, warning, firing
+      beamX: 0,
+      beamTimer: 0,
+      hitFlash: 0,
+
+      init() {
+        this.x = width / 2;
+        this.y = 120;
+        this.hp = CONFIG.BOSS.HP;
+        this.maxHp = CONFIG.BOSS.HP;
+        this.direction = 1;
+        this.lastBeam = 0;
+        this.beamState = 'none';
+        this.hitFlash = 0;
+      },
+
+      update(timestamp) {
+        // 左右移動
+        this.x += CONFIG.BOSS.SPEED * this.direction;
+        if (this.x > width - CONFIG.BOSS.WIDTH / 2 - 20) {
+          this.direction = -1;
+        } else if (this.x < CONFIG.BOSS.WIDTH / 2 + 20) {
+          this.direction = 1;
+        }
+
+        // ヒットフラッシュ減衰
+        if (this.hitFlash > 0) this.hitFlash--;
+
+        // ビーム攻撃
+        if (this.beamState === 'none' && timestamp - this.lastBeam > CONFIG.BOSS.BEAM_INTERVAL) {
+          this.beamState = 'warning';
+          this.beamX = player.x;
+          this.beamTimer = timestamp;
+          this.lastBeam = timestamp;
+        }
+
+        if (this.beamState === 'warning' && timestamp - this.beamTimer > CONFIG.BOSS.BEAM_WARNING) {
+          this.beamState = 'firing';
+          this.beamTimer = timestamp;
+        }
+
+        if (this.beamState === 'firing' && timestamp - this.beamTimer > CONFIG.BOSS.BEAM_DURATION) {
+          this.beamState = 'none';
+        }
+
+        // ビームとプレイヤーの当たり判定
+        if (this.beamState === 'firing') {
+          const beamWidth = 60;
+          if (Math.abs(player.x - this.beamX) < beamWidth / 2 + 20) {
+            // プレイヤーにダメージ
+            game.lives--;
+            document.getElementById('lives').textContent = game.lives;
+            this.beamState = 'none';
+
+            // ダメージエフェクト
+            for (let p = 0; p < 12; p++) {
+              game.particles.push({
+                x: player.x,
+                y: player.y,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                color: '#ff0000',
+                life: 40
+              });
+            }
+
+            if (game.lives <= 0) {
+              gameState('gameover');
+            }
+          }
+        }
+      },
+
+      draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // ヒットフラッシュ
+        const flashColor = this.hitFlash > 0 ? '#fff' : null;
+
+        // 鐘本体
+        const gradient = ctx.createLinearGradient(-60, -60, 60, 60);
+        gradient.addColorStop(0, flashColor || '#ffd700');
+        gradient.addColorStop(0.5, flashColor || '#b8860b');
+        gradient.addColorStop(1, flashColor || '#8b6914');
+
+        // 鐘の形
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(-50, -50);
+        ctx.quadraticCurveTo(-60, 0, -55, 50);
+        ctx.lineTo(-60, 55);
+        ctx.lineTo(60, 55);
+        ctx.lineTo(55, 50);
+        ctx.quadraticCurveTo(60, 0, 50, -50);
+        ctx.quadraticCurveTo(0, -70, -50, -50);
+        ctx.fill();
+
+        // 鐘のハイライト
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(-20, -20, 15, 25, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 鐘の下の縁
+        ctx.fillStyle = flashColor || '#daa520';
+        ctx.fillRect(-62, 50, 124, 10);
+
+        // 撞木（しゅもく）
+        ctx.fillStyle = '#8b4513';
+        ctx.beginPath();
+        ctx.arc(0, 30, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ボスの目（怒り）
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(-20, 0, 8, 0, Math.PI * 2);
+        ctx.arc(20, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(-20, 0, 4, 0, Math.PI * 2);
+        ctx.arc(20, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+
+        // ビーム描画
+        this.drawBeam();
+
+        // HPバー
+        this.drawHPBar();
+      },
+
+      drawBeam() {
+        if (this.beamState === 'none') return;
+
+        const beamWidth = 60;
+
+        if (this.beamState === 'warning') {
+          // 警告表示（点滅する縦線）
+          ctx.strokeStyle = `rgba(255, 0, 0, ${0.3 + Math.sin(Date.now() * 0.02) * 0.3})`;
+          ctx.lineWidth = 4;
+          ctx.setLineDash([10, 10]);
+          ctx.beginPath();
+          ctx.moveTo(this.beamX, this.y + 60);
+          ctx.lineTo(this.beamX, height);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // 警告エリア
+          ctx.fillStyle = `rgba(255, 0, 0, ${0.1 + Math.sin(Date.now() * 0.02) * 0.1})`;
+          ctx.fillRect(this.beamX - beamWidth / 2, this.y + 60, beamWidth, height - this.y - 60);
+        }
+
+        if (this.beamState === 'firing') {
+          // 煩悩ビーム
+          const gradient = ctx.createLinearGradient(this.beamX - beamWidth / 2, 0, this.beamX + beamWidth / 2, 0);
+          gradient.addColorStop(0, 'rgba(128, 0, 128, 0.8)');
+          gradient.addColorStop(0.3, 'rgba(255, 0, 128, 0.9)');
+          gradient.addColorStop(0.5, 'rgba(255, 100, 200, 1)');
+          gradient.addColorStop(0.7, 'rgba(255, 0, 128, 0.9)');
+          gradient.addColorStop(1, 'rgba(128, 0, 128, 0.8)');
+
+          ctx.fillStyle = gradient;
+          ctx.fillRect(this.beamX - beamWidth / 2, this.y + 60, beamWidth, height - this.y - 60);
+
+          // ビームの縁
+          ctx.strokeStyle = '#ff00ff';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(this.beamX - beamWidth / 2, this.y + 60, beamWidth, height - this.y - 60);
+
+          // 煩悩の文字がビーム内を流れる
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 20px sans-serif';
+          ctx.textAlign = 'center';
+          const chars = ['怒', '欲', '妬', '惰', '傲'];
+          for (let i = 0; i < 5; i++) {
+            const charY = ((Date.now() * 0.5 + i * 100) % (height - this.y - 60)) + this.y + 80;
+            ctx.fillText(chars[i], this.beamX, charY);
+          }
+        }
+      },
+
+      drawHPBar() {
+        const barWidth = 200;
+        const barHeight = 20;
+        const x = width / 2 - barWidth / 2;
+        const y = 20;
+
+        // 背景
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        // HP
+        const hpRatio = this.hp / this.maxHp;
+        const hpColor = hpRatio > 0.5 ? '#ff4444' : hpRatio > 0.25 ? '#ff8800' : '#ff0000';
+        ctx.fillStyle = hpColor;
+        ctx.fillRect(x, y, barWidth * hpRatio, barHeight);
+
+        // 枠
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, barWidth, barHeight);
+
+        // テキスト
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`煩悩大鐘 ${this.hp}/${this.maxHp}`, width / 2, y + 15);
+      },
+
+      takeDamage() {
+        this.hp--;
+        this.hitFlash = 10;
+
+        // ダメージエフェクト
+        for (let p = 0; p < 5; p++) {
+          game.particles.push({
+            x: this.x + (Math.random() - 0.5) * 100,
+            y: this.y + (Math.random() - 0.5) * 100,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8,
+            color: '#ffd700',
+            life: 30
+          });
+        }
+
+        if (this.hp <= 0) {
+          // ボス撃破
+          for (let p = 0; p < 50; p++) {
+            game.particles.push({
+              x: this.x + (Math.random() - 0.5) * 150,
+              y: this.y + (Math.random() - 0.5) * 150,
+              vx: (Math.random() - 0.5) * 15,
+              vy: (Math.random() - 0.5) * 15,
+              color: ['#ffd700', '#ff4444', '#ff00ff', '#00ffff'][Math.floor(Math.random() * 4)],
+              life: 60
+            });
+          }
+          gameState('clear');
+        }
+      }
     };
 
     // ===== Canvas 設定 =====
@@ -424,14 +689,19 @@
 
     // ===== 煩悩 =====
     function spawnBonnou() {
-      const type = CONFIG.BONNOU_TYPES[Math.floor(Math.random() * CONFIG.BONNOU_TYPES.length)];
-      game.bonnous.push({
-        x: Math.random() * (width - 60) + 30,
-        y: -50,
-        type: type,
-        angle: 0,
-        time: 0
-      });
+      const currentPhase = CONFIG.PHASES[game.phase];
+      const count = currentPhase.spawnCount || 1;
+
+      for (let i = 0; i < count; i++) {
+        const type = CONFIG.BONNOU_TYPES[Math.floor(Math.random() * CONFIG.BONNOU_TYPES.length)];
+        game.bonnous.push({
+          x: Math.random() * (width - 60) + 30,
+          y: -50 - (i * 40),
+          type: type,
+          angle: Math.random() * Math.PI * 2,
+          time: 0
+        });
+      }
     }
 
     function updateBonnous() {
@@ -446,18 +716,25 @@
             break;
           case 'fast':
             b.y += b.type.speed;
+            // 高速タイプは少し左右にブレる
+            b.x += (Math.random() - 0.5) * 2;
             break;
           case 'homing':
             const dx = player.x - b.x;
-            b.x += Math.sign(dx) * 1;
+            // 強力な追尾（距離に応じて加速）
+            const homingStrength = Math.min(3, Math.abs(dx) * 0.02);
+            b.x += Math.sign(dx) * homingStrength;
             b.y += b.type.speed;
             break;
           case 'wave':
-            b.angle += 0.05;
-            b.x += Math.sin(b.angle) * 3;
+            b.angle += 0.08;
+            b.x += Math.sin(b.angle) * 5;
             b.y += b.type.speed;
             break;
         }
+
+        // 画面内に制限（左右）
+        b.x = Math.max(b.type.size, Math.min(width - b.type.size, b.x));
 
         // 画面外で削除
         if (b.y > height + 50) {
@@ -536,9 +813,9 @@
             // フェーズチェック
             checkPhase();
 
-            // クリアチェック
-            if (game.bellCount >= CONFIG.MAX_BELLS) {
-              gameState('clear');
+            // ボス戦へ移行
+            if (game.bellCount >= CONFIG.MAX_BELLS && game.state === 'playing') {
+              startBossBattle();
             }
 
             break;
@@ -573,6 +850,44 @@
           if (game.lives <= 0) {
             gameState('gameover');
           }
+        }
+      }
+    }
+
+    // ===== ボス戦 =====
+    function startBossBattle() {
+      game.state = 'boss';
+      game.bonnous = [];
+      game.hammers = [];
+      boss.init();
+
+      // ボス登場アナウンス
+      announcePhase('煩悩大鐘 出現！');
+
+      // UIを隠す（ボス戦専用表示に）
+      document.getElementById('phaseDisplay').textContent = 'BOSS BATTLE';
+    }
+
+    function checkBossCollisions() {
+      // ハンマー vs ボス
+      for (let hi = game.hammers.length - 1; hi >= 0; hi--) {
+        const h = game.hammers[hi];
+        const dx = h.x - boss.x;
+        const dy = h.y - boss.y;
+
+        // ボスの当たり判定（矩形）
+        if (Math.abs(dx) < CONFIG.BOSS.WIDTH / 2 + 10 &&
+            Math.abs(dy) < CONFIG.BOSS.HEIGHT / 2 + 10) {
+          game.hammers.splice(hi, 1);
+          boss.takeDamage();
+
+          // 鐘エフェクト
+          game.bellRings.push({
+            x: h.x,
+            y: h.y,
+            radius: 0,
+            alpha: 1
+          });
         }
       }
     }
@@ -758,6 +1073,28 @@
 
         // 描画
         drawBonnous();
+        drawHammers();
+        player.draw();
+        drawParticles();
+        drawBellRings();
+      }
+
+      if (game.state === 'boss') {
+        // スペースキーで連射
+        if (input.fire) {
+          fireHammer();
+        }
+
+        // 更新
+        player.update();
+        updateHammers();
+        boss.update(timestamp);
+        checkBossCollisions();
+        updateParticles();
+        updateBellRings();
+
+        // 描画
+        boss.draw();
         drawHammers();
         player.draw();
         drawParticles();
