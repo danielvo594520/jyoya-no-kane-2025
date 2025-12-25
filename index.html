@@ -182,10 +182,12 @@
         HP: 108,
         WIDTH: 120,
         HEIGHT: 150,
-        SPEED: 3,
-        BEAM_INTERVAL: 1500,
+        SPEED: 4,
+        BEAM_INTERVAL: 2000,
         BEAM_DURATION: 800,
-        BEAM_WARNING: 500
+        BEAM_WARNING: 500,
+        SPAWN_INTERVAL: 600,
+        SPAWN_COUNT: 2
       }
     };
 
@@ -217,6 +219,14 @@
       beamX: 0,
       beamTimer: 0,
       hitFlash: 0,
+      lastSpawn: 0,
+      // ランダム動き用
+      speedMultiplier: 1,
+      verticalOffset: 0,
+      verticalDirection: 1,
+      nextDirectionChange: 0,
+      dashTimer: 0,
+      isDashing: false,
 
       init() {
         this.x = width / 2;
@@ -227,19 +237,64 @@
         this.lastBeam = 0;
         this.beamState = 'none';
         this.hitFlash = 0;
+        this.lastSpawn = 0;
+        this.speedMultiplier = 1;
+        this.verticalOffset = 0;
+        this.verticalDirection = 1;
+        this.nextDirectionChange = 0;
+        this.dashTimer = 0;
+        this.isDashing = false;
       },
 
       update(timestamp) {
-        // 左右移動
-        this.x += CONFIG.BOSS.SPEED * this.direction;
+        // ランダムな方向転換
+        if (timestamp > this.nextDirectionChange) {
+          if (Math.random() < 0.3) {
+            this.direction *= -1;
+          }
+          // ランダムなダッシュ
+          if (Math.random() < 0.2 && !this.isDashing) {
+            this.isDashing = true;
+            this.dashTimer = timestamp;
+            this.speedMultiplier = 2.5;
+          }
+          this.nextDirectionChange = timestamp + 500 + Math.random() * 1000;
+        }
+
+        // ダッシュ終了
+        if (this.isDashing && timestamp - this.dashTimer > 300) {
+          this.isDashing = false;
+          this.speedMultiplier = 0.8 + Math.random() * 0.8;
+        }
+
+        // 左右移動（ランダム速度）
+        const speed = CONFIG.BOSS.SPEED * this.speedMultiplier;
+        this.x += speed * this.direction;
+
+        // 画面端で反転
         if (this.x > width - CONFIG.BOSS.WIDTH / 2 - 20) {
+          this.x = width - CONFIG.BOSS.WIDTH / 2 - 20;
           this.direction = -1;
         } else if (this.x < CONFIG.BOSS.WIDTH / 2 + 20) {
+          this.x = CONFIG.BOSS.WIDTH / 2 + 20;
           this.direction = 1;
         }
 
+        // 上下のゆらぎ
+        this.verticalOffset += 0.5 * this.verticalDirection;
+        if (Math.abs(this.verticalOffset) > 30) {
+          this.verticalDirection *= -1;
+        }
+        this.y = 120 + this.verticalOffset + Math.sin(timestamp * 0.003) * 15;
+
         // ヒットフラッシュ減衰
         if (this.hitFlash > 0) this.hitFlash--;
+
+        // 煩悩をスポーン
+        if (timestamp - this.lastSpawn > CONFIG.BOSS.SPAWN_INTERVAL) {
+          this.spawnBonnouFromBoss();
+          this.lastSpawn = timestamp;
+        }
 
         // ビーム攻撃
         if (this.beamState === 'none' && timestamp - this.lastBeam > CONFIG.BOSS.BEAM_INTERVAL) {
@@ -283,6 +338,23 @@
               gameState('gameover');
             }
           }
+        }
+      },
+
+      spawnBonnouFromBoss() {
+        const count = CONFIG.BOSS.SPAWN_COUNT;
+        for (let i = 0; i < count; i++) {
+          const type = CONFIG.BONNOU_TYPES[Math.floor(Math.random() * CONFIG.BONNOU_TYPES.length)];
+          // 鐘の下から煩悩が出現
+          const offsetX = (Math.random() - 0.5) * CONFIG.BOSS.WIDTH;
+          game.bonnous.push({
+            x: this.x + offsetX,
+            y: this.y + CONFIG.BOSS.HEIGHT / 2 + 20,
+            type: type,
+            angle: Math.random() * Math.PI * 2,
+            time: 0,
+            fromBoss: true // ボスから出た煩悩フラグ
+          });
         }
       },
 
@@ -890,6 +962,65 @@
           });
         }
       }
+
+      // ハンマー vs 煩悩（ボス戦中、カウントなし）
+      for (let hi = game.hammers.length - 1; hi >= 0; hi--) {
+        const h = game.hammers[hi];
+        for (let bi = game.bonnous.length - 1; bi >= 0; bi--) {
+          const b = game.bonnous[bi];
+          const dx = h.x - b.x;
+          const dy = h.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < b.type.size + 10) {
+            game.hammers.splice(hi, 1);
+            game.bonnous.splice(bi, 1);
+
+            // パーティクルのみ（点数なし）
+            for (let p = 0; p < 6; p++) {
+              game.particles.push({
+                x: b.x,
+                y: b.y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6,
+                color: b.type.color,
+                life: 25
+              });
+            }
+            break;
+          }
+        }
+      }
+
+      // 煩悩 vs プレイヤー（ボス戦中）
+      for (let bi = game.bonnous.length - 1; bi >= 0; bi--) {
+        const b = game.bonnous[bi];
+        const dx = player.x - b.x;
+        const dy = player.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < b.type.size + 20) {
+          game.bonnous.splice(bi, 1);
+          game.lives--;
+          document.getElementById('lives').textContent = game.lives;
+
+          // ダメージエフェクト
+          for (let p = 0; p < 12; p++) {
+            game.particles.push({
+              x: player.x,
+              y: player.y,
+              vx: (Math.random() - 0.5) * 10,
+              vy: (Math.random() - 0.5) * 10,
+              color: '#ff0000',
+              life: 40
+            });
+          }
+
+          if (game.lives <= 0) {
+            gameState('gameover');
+          }
+        }
+      }
     }
 
     // ===== フェーズ管理 =====
@@ -1088,12 +1219,14 @@
         // 更新
         player.update();
         updateHammers();
+        updateBonnous();
         boss.update(timestamp);
         checkBossCollisions();
         updateParticles();
         updateBellRings();
 
         // 描画
+        drawBonnous();
         boss.draw();
         drawHammers();
         player.draw();
