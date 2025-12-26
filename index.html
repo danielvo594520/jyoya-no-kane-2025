@@ -660,7 +660,7 @@
     });
 
     canvas.addEventListener('click', () => {
-      if (game.state === 'playing') fireHammer();
+      if (game.state === 'playing' || game.state === 'boss') fireHammer();
     });
 
     // タッチ
@@ -678,7 +678,7 @@
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       input.mouseX = e.touches[0].clientX - rect.left;
-      if (game.state === 'playing') fireHammer();
+      if (game.state === 'playing' || game.state === 'boss') fireHammer();
     });
 
     // ===== ハンマー =====
